@@ -13,6 +13,7 @@ comme Dagster gère pour vous (cf. section Bonus du README).
 import os
 from datetime import date, timedelta
 
+import build_aggregates
 import ingest_airports
 import ingest_bookings
 import ingest_flights
@@ -54,6 +55,8 @@ def run():
             entity.ingest_gold()
 
         print(f"{day.isoformat()} ingéré.")
+
+    build_aggregates.run()
 
 
 if __name__ == "__main__":
