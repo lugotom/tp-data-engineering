@@ -75,8 +75,25 @@ def ingest_silver(day: date = None, init: bool = False):
 
 
 def ingest_gold():
-    # TODO : reconstruire la/les table(s) de gold avec les données booking à partir de silver_bookings. 
-    raise NotImplementedError
+    """Reconstruit fact_booking (la table de fait) à partir de silver_bookings.
+
+    Une ligne = une réservation. Elle contient :
+      - les clés vers les dimensions : passenger_id -> dim_passenger, flight_id -> dim_flight,
+        airport_id -> dim_airport, currency -> dim_currency ;
+      - les mesures : amount (montant d'origine) et amount_eur (montant converti en euros).
+
+    amount_eur = amount * rate_to_eur, avec le taux lu dans dim_currency.
+    """
+    con = get_connection()
+    con.execute("""
+        CREATE OR REPLACE TABLE fact_booking AS
+        SELECT
+            b.*,
+            CAST(b.amount * c.rate_to_eur AS DECIMAL(12, 2)) AS amount_eur
+        FROM silver_bookings AS b
+        LEFT JOIN dim_currency AS c ON b.currency = c.currency
+    """)
+    con.close()
 
 
 def init():
