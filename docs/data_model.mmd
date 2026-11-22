@@ -5,6 +5,7 @@ erDiagram
     fact_booking }o--|| dim_currency : "currency"
     dim_flight }o--|| dim_airport : "origin_airport_id"
     dim_flight }o--|| dim_airport : "destination_airport_id"
+    dim_flight ||--|{ dim_flight_history : "flight_id (versions SCD2)"
     fact_booking ||..o{ agg_revenue_daily_airline : "agrégé par jour + compagnie"
 
     fact_booking {
@@ -34,6 +35,23 @@ erDiagram
         bigint flight_duration_minutes "calculé"
         boolean is_active
         date deleted_date
+        timestamp insert_timestamp
+        timestamp update_timestamp
+    }
+    dim_flight_history {
+        varchar flight_id PK
+        date valid_from PK
+        date valid_to
+        boolean is_current
+        varchar flight_number
+        varchar airline
+        varchar origin_airport_id FK
+        varchar destination_airport_id FK
+        date flight_date
+        time departure_time
+        time arrival_time
+        varchar aircraft_type
+        bigint flight_duration_minutes "calculé"
         timestamp insert_timestamp
         timestamp update_timestamp
     }
