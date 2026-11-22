@@ -4,7 +4,7 @@
 """
 from datetime import date
 
-from common import fetch_csv
+from common import fetch_csv, get_connection
 
 
 def _daily_file(day: date = None, init: bool = False):
@@ -20,13 +20,58 @@ def ingest_bronze(day: date = None, init: bool = False):
 
 
 def create_silver_table(con):
-    # TODO : créer silver_bookings (colonnes du CSV source + insert_timestamp/update_timestamp, cf. ingest_airports.py).
-    raise NotImplementedError
+    # Table de fait (évènements immuables) : pas de is_active ni de deleted_date.
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS silver_bookings (
+            booking_id VARCHAR PRIMARY KEY,
+            passenger_id VARCHAR,
+            flight_id VARCHAR,
+            airport_id VARCHAR,
+            seat_class VARCHAR,
+            amount DECIMAL(10, 2),
+            currency VARCHAR,
+            booking_date DATE,
+            booking_channel VARCHAR,
+            insert_timestamp TIMESTAMP,
+            update_timestamp TIMESTAMP
+        )
+    """)
 
 
 def ingest_silver(day: date = None, init: bool = False):
-    # TODO : relire le fichier du jour depuis bronze/ et charger les lignes dans silver_bookings.
-    raise NotImplementedError
+    """Relit les réservations du jour depuis bronze/ et les ajoute à silver_bookings.
+
+    Le fichier ne contient QUE les réservations du jour (pas un snapshot complet), et une
+    réservation ne change jamais : on fait donc un simple insert, sans update ni désactivation.
+    ON CONFLICT DO NOTHING rend l'insert idempotent : si on relance le même jour, les
+    booking_id déjà présents sont ignorés au lieu de créer des doublons (ou une erreur).
+    """
+    df = fetch_csv(*_daily_file(day, init))
+
+    con = get_connection()
+    create_silver_table(con)
+    con.register("daily", df)
+
+    con.execute("""
+        INSERT INTO silver_bookings
+        SELECT
+            booking_id,
+            passenger_id,
+            flight_id,
+            airport_id,
+            seat_class,
+            CAST(amount AS DECIMAL(10, 2)),
+            currency,
+            CAST(booking_date AS DATE),
+            booking_channel,
+            now(),  -- insert_timestamp
+            now()   -- update_timestamp
+        FROM daily
+        ON CONFLICT (booking_id) DO NOTHING
+    """)
+
+    con.unregister("daily")
+    con.close()
 
 
 def ingest_gold():
