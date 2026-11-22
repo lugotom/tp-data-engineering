@@ -4,10 +4,20 @@
 """
 from datetime import date
 
+from common import fetch_csv
+
+
+def _snapshot_file(lang: str, day: date = None, init: bool = False):
+    if init:
+        return "init", f"passengers_{lang}.csv"
+    assert day is not None
+    return "2025-09", f"passengers_{lang}_{day.isoformat()}.csv"
+
 
 def ingest_bronze(day: date = None, init: bool = False):
-    # TODO : télécharger les deux snapshots (EN et FR) du jour (ou de init/) vers bronze/.
-    raise NotImplementedError
+    """Rapatrie les deux snapshots passagers (EN et FR) du jour (ou de init/) dans bronze/."""
+    for lang in ("en", "fr"):
+        fetch_csv(*_snapshot_file(lang, day, init))
 
 
 def create_silver_table(con):

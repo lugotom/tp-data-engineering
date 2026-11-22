@@ -4,10 +4,19 @@
 """
 from datetime import date
 
+from common import fetch_csv
+
+
+def _daily_file(day: date = None, init: bool = False):
+    if init:
+        return "init", "bookings.csv"
+    assert day is not None
+    return "2025-09", f"bookings_{day.isoformat()}.csv"
+
 
 def ingest_bronze(day: date = None, init: bool = False):
-    # TODO : télécharger le fichier bookings du jour (ou de init/) vers bronze/.
-    raise NotImplementedError
+    """Rapatrie les réservations du jour (ou de init/) dans bronze/, sans transformation."""
+    fetch_csv(*_daily_file(day, init))
 
 
 def create_silver_table(con):
