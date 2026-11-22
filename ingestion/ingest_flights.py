@@ -102,8 +102,26 @@ def ingest_silver(day: date = None, init: bool = False):
 
 
 def ingest_gold():
-    # TODO : reconstruire la/les table(s) de gold avec les données flights à partir de silver_flights
-    raise NotImplementedError
+    """Reconstruit dim_flight à partir de l'état courant de silver_flights.
+
+    On ajoute la durée de vol calculée, en minutes :
+      - cas normal : arrivée - départ (ex. 10:30 -> 12:02 = 92 min) ;
+      - vol qui arrive le lendemain (arrivée < départ, ex. 15:30 -> 03:41) : la différence
+        est négative, on ajoute 24 h = 1440 min pour obtenir la vraie durée (731 min).
+    """
+    con = get_connection()
+    con.execute("""
+        CREATE OR REPLACE TABLE dim_flight AS
+        SELECT
+            *,
+            CASE
+                WHEN arrival_time >= departure_time
+                    THEN date_diff('minute', departure_time, arrival_time)
+                ELSE date_diff('minute', departure_time, arrival_time) + 1440
+            END AS flight_duration_minutes
+        FROM silver_flights
+    """)
+    con.close()
 
 
 def init():
