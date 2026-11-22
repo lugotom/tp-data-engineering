@@ -1,5 +1,7 @@
 # Documentation — choix de modélisation
 
+**Auteur :** Tom Labourel (TP réalisé seul)
+
 ## Lancer le pipeline
 
 ```bash
