@@ -4,3 +4,4 @@ __pycache__/
 bronze/
 warehouse.duckdb
 .idea/
+*:Zone.Identifier

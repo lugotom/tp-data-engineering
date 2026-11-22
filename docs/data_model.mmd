@@ -1,0 +1,79 @@
+erDiagram
+    fact_booking }o--|| dim_passenger : "passenger_id"
+    fact_booking }o--|| dim_flight : "flight_id"
+    fact_booking }o--|| dim_airport : "airport_id (départ)"
+    fact_booking }o--|| dim_currency : "currency"
+    dim_flight }o--|| dim_airport : "origin_airport_id"
+    dim_flight }o--|| dim_airport : "destination_airport_id"
+    fact_booking ||..o{ agg_revenue_daily_airline : "agrégé par jour + compagnie"
+
+    fact_booking {
+        varchar booking_id PK
+        varchar passenger_id FK
+        varchar flight_id FK
+        varchar airport_id FK
+        varchar currency FK
+        varchar seat_class
+        varchar booking_channel
+        date booking_date
+        decimal amount
+        decimal amount_eur "calculé"
+        timestamp insert_timestamp
+        timestamp update_timestamp
+    }
+    dim_flight {
+        varchar flight_id PK
+        varchar flight_number
+        varchar airline
+        varchar origin_airport_id FK
+        varchar destination_airport_id FK
+        date flight_date
+        time departure_time
+        time arrival_time
+        varchar aircraft_type
+        bigint flight_duration_minutes "calculé"
+        boolean is_active
+        date deleted_date
+        timestamp insert_timestamp
+        timestamp update_timestamp
+    }
+    dim_passenger {
+        varchar passenger_id PK
+        varchar first_name
+        varchar last_name
+        varchar gender
+        varchar nationality
+        varchar email
+        date birth_date
+        date signup_date
+        varchar source_system
+        bigint age "calculé"
+        varchar age_range "calculé"
+        boolean is_active
+        date deleted_date
+        timestamp insert_timestamp
+        timestamp update_timestamp
+    }
+    dim_airport {
+        varchar airport_id PK
+        varchar iata_code
+        varchar airport_name
+        varchar city
+        varchar country
+        boolean is_active
+        date deleted_date
+        timestamp insert_timestamp
+        timestamp update_timestamp
+    }
+    dim_currency {
+        varchar currency PK
+        double rate_to_eur
+    }
+    agg_revenue_daily_airline {
+        date booking_date
+        varchar airline
+        bigint nb_bookings
+        decimal revenue_eur
+        timestamp insert_timestamp
+        timestamp update_timestamp
+    }
