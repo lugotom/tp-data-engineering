@@ -5,3 +5,4 @@ bronze/
 warehouse.duckdb
 .idea/
 *:Zone.Identifier
+.tmp_dagster_home_*/

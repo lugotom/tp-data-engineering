@@ -8,6 +8,8 @@ pip install -r requirements.txt
 python ingestion/run_month.py 
 ```
 
+Ou avec Dagster (bonus, cf. section 6) : `dagster dev -f ingestion/dagster_defs.py -d ingestion`.
+
 ## 1. Ce que l'exploration a montré
 
 | Fichier source | Clé | Contenu d'un fichier journalier | Évolution observée | Nature |
@@ -228,7 +230,51 @@ WHERE flight_id = 'F0141'
   AND (valid_to > DATE '2025-09-05' OR valid_to IS NULL);
 ```
 
-## 6. Limites connues
+## 6. Bonus : orchestration avec Dagster
+
+`ingestion/dagster_defs.py` remplace `run_month.py`. Les fonctions des scripts d'ingestion ne changent
+pas : chacune est « emballée » dans un **asset** Dagster (une fonction ≈ un asset).
+
+| Asset | Partitionné ? | Appelle |
+|---|---|---|
+| `init_load` | non | `dim_currency.sql` + `ingest_bronze/ingest_silver(init=True)` des 4 entités |
+| `bronze_<entité>` (×4) | **oui, 1 partition par jour** (1 → 30 septembre) | `ingest_bronze(jour)` |
+| `silver_<entité>` (×4) | **oui, 1 partition par jour** | `ingest_silver(jour)` |
+| `dim_airport`, `dim_flight`, `dim_passenger`, `fact_booking` | non | `ingest_gold()` |
+| `agg_revenue_daily_airline` | non | `build_aggregates` |
+
+**Dépendances.** Elles sont déclarées dans le code (`deps=`), Dagster en déduit l'ordre et les dessine :
+`bronze → silver → gold → agrégat`, `init_load` avant les silver quotidiens et avant `fact_booking`
+(qui a besoin de `dim_currency`), et l'agrégat après `fact_booking` et `dim_flight`. Le gold n'est pas
+partitionné car il ne dépend que de l'état courant du silver, pas d'une date.
+
+**Deux choix liés à DuckDB et au silver :**
+
+- **`BackfillPolicy.single_run()`** : un backfill de 30 jours s'exécute en **un seul run** qui reçoit
+  toute la plage de dates et la traite **dans l'ordre**. Avec 30 runs séparés, Dagster pourrait les
+  lancer en parallèle ou dans le désordre, or le silver compare chaque jour à l'état de la veille
+  (désactivations, SCD2).
+- **`in_process_executor`** : les assets d'un run s'exécutent l'un après l'autre dans un seul processus,
+  car DuckDB n'accepte qu'un processus en écriture à la fois sur `warehouse.duckdb`.
+
+**Lancer :**
+
+```bash
+pip install -r requirements-dagster.txt
+dagster dev -f ingestion/dagster_defs.py -d ingestion    # -d : dossier des scripts importés
+```
+
+Puis, sur http://localhost:3000 (onglet *Assets*) :
+
+1. Matérialiser `init_load`.
+2. Sélectionner les 8 assets `bronze_*` et `silver_*` → *Materialize* → toutes les partitions
+   (`2025-09-01` … `2025-09-30`) : c'est le **backfill** qui remplace la boucle de `run_month.py`.
+3. Matérialiser les 5 assets du groupe `gold`.
+
+**Vérification.** Les 11 tables produites par Dagster (silver, gold, historique SCD2, agrégat) sont
+identiques ligne à ligne à celles produites par `run_month.py` (hors colonnes de timestamp).
+
+## 7. Limites connues
 
 - **Historique uniquement sur les vols** : aéroports et passagers restent en SCD1 (l'upsert écrase
   l'ancienne valeur). La même logique SCD2 pourrait leur être appliquée.
@@ -237,3 +283,5 @@ WHERE flight_id = 'F0141'
 - **Durée de vol** : on suppose que départ et arrivée sont dans le même fuseau horaire et qu'aucun vol ne dépasse 24 h.
 - **Âge calculé à la date d'exécution** : il change d'un jour à l'autre ; l'âge au moment de la réservation n'est pas stocké.
 - **Taux de change fixes** (`dim_currency`) : pas d'évolution des taux dans le temps.
+- **Dagster ne suit pas la fraîcheur du gold** : après un nouveau backfill du silver, il faut
+  rematérialiser le groupe `gold` à la main (pas de déclenchement automatique configuré).
