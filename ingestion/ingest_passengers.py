@@ -4,7 +4,7 @@
 """
 from datetime import date
 
-from common import fetch_csv
+from common import fetch_csv, get_connection
 
 
 def _snapshot_file(lang: str, day: date = None, init: bool = False):
@@ -21,14 +21,105 @@ def ingest_bronze(day: date = None, init: bool = False):
 
 
 def create_silver_table(con):
-    # TODO : créer silver_passengers avec un schéma de table UNIQUE
-    # + is_active + deleted_date + insert_timestamp/update_timestamp (cf. ingest_airports.py).
-    raise NotImplementedError
+    # Système anglais uniformisé: DATE pour toutes les dates, Male/Female
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS silver_passengers (
+            passenger_id VARCHAR PRIMARY KEY,
+            first_name VARCHAR,
+            last_name VARCHAR,
+            gender VARCHAR,
+            nationality VARCHAR,
+            email VARCHAR,
+            birth_date DATE,
+            signup_date DATE,
+            source_system VARCHAR,
+            is_active BOOLEAN,
+            deleted_date DATE,
+            insert_timestamp TIMESTAMP,
+            update_timestamp TIMESTAMP
+        )
+    """)
 
 
 def ingest_silver(day: date = None, init: bool = False):
-    # TODO : chargement de la données dans dans silver_passengers par passenger_id
-    raise NotImplementedError
+    """Relit les 2 snapshots passagers (EN + FR) depuis bronze/, les harmonise et les upsert.
+
+    Les deux fichiers viennent de deux CRM différents, avec des formats différents :
+      EN : passenger_id, first_name, ..., gender = Male/Female, dates en YYYY-MM-DD
+      FR : id_passager,  prenom, ..., genre  = Homme/Femme, dates en DD/MM/YYYY
+    On les met au même format puis on les empile (UNION ALL) avant l'upsert.
+    Les passenger_id ne se chevauchent pas entre EN et FR : pas de doublon à gérer.
+    """
+    df_en = fetch_csv(*_snapshot_file("en", day, init))
+    df_fr = fetch_csv(*_snapshot_file("fr", day, init))
+    snapshot_date = date(2025, 8, 31) if init else day
+
+    con = get_connection()
+    create_silver_table(con)
+    con.register("snapshot_en", df_en)
+    con.register("snapshot_fr", df_fr)
+
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE snapshot AS
+        SELECT
+            passenger_id,
+            first_name,
+            last_name,
+            gender,
+            nationality,
+            email,
+            CAST(birth_date AS DATE) AS birth_date,
+            CAST(signup_date AS DATE) AS signup_date,
+            'en' AS source_system
+        FROM snapshot_en
+
+        UNION ALL
+
+        SELECT
+            id_passager AS passenger_id,
+            prenom AS first_name,
+            nom AS last_name,
+            CASE genre WHEN 'Homme' THEN 'Male' WHEN 'Femme' THEN 'Female' END AS gender,
+            nationalite AS nationality,
+            email,
+            CAST(strptime(date_naissance, '%d/%m/%Y') AS DATE) AS birth_date,
+            CAST(strptime(date_inscription, '%d/%m/%Y') AS DATE) AS signup_date,
+            'fr' AS source_system
+        FROM snapshot_fr
+    """)
+
+    con.execute("""
+        INSERT INTO silver_passengers
+        SELECT *, true, NULL, now(), now()   -- is_active, deleted_date, insert/update_timestamp
+        FROM snapshot
+        ON CONFLICT (passenger_id) DO UPDATE SET
+            first_name = excluded.first_name,
+            last_name = excluded.last_name,
+            gender = excluded.gender,
+            nationality = excluded.nationality,
+            email = excluded.email,
+            birth_date = excluded.birth_date,
+            signup_date = excluded.signup_date,
+            source_system = excluded.source_system,
+            is_active = true,
+            deleted_date = NULL,
+            update_timestamp = now()
+    """)
+
+    con.execute(
+        """
+        UPDATE silver_passengers
+        SET is_active = false, deleted_date = ?, update_timestamp = now()
+        WHERE is_active = true
+          AND passenger_id NOT IN (SELECT passenger_id FROM snapshot)
+        """,
+        [snapshot_date],
+    )
+
+    con.execute("DROP TABLE snapshot")
+    con.unregister("snapshot_en")
+    con.unregister("snapshot_fr")
+    con.close()
 
 
 def ingest_gold():
