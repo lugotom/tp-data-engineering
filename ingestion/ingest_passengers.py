@@ -123,8 +123,34 @@ def ingest_silver(day: date = None, init: bool = False):
 
 
 def ingest_gold():
-    # TODO : reconstruire la/les table(s) de gold avec les données passengers à partir de silver_passengers
-    raise NotImplementedError
+    """Reconstruit dim_passenger à partir de l'état courant de silver_passengers.
+
+    On ajoute :
+      - age : l'âge exact aujourd'hui. age(current_date, birth_date) donne un intervalle
+        (ex. "34 years 2 months 5 days"), on n'en garde que les années. On n'utilise pas une
+        simple différence d'années (2026 - 1991), qui serait fausse avant l'anniversaire ;
+      - age_range : la tranche d'âge, calculée à partir de cet âge
+    """
+    con = get_connection()
+    con.execute("""
+        CREATE OR REPLACE TABLE dim_passenger AS
+        SELECT
+            *,
+            CASE
+                WHEN age < 18 THEN '0-17'
+                WHEN age < 25 THEN '18-24'
+                WHEN age < 35 THEN '25-34'
+                WHEN age < 45 THEN '35-44'
+                WHEN age < 55 THEN '45-54'
+                WHEN age < 65 THEN '55-64'
+                ELSE '65+'
+            END AS age_range
+        FROM (
+            SELECT *, date_part('year', age(current_date, birth_date)) AS age
+            FROM silver_passengers
+        )
+    """)
+    con.close()
 
 
 def init():
